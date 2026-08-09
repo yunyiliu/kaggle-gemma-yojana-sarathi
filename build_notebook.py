@@ -121,26 +121,43 @@ Three constraints each independently rule out a hosted API.
 No API key appears anywhere in this notebook.
 """),
 
-    md("## 1 · Environment\n\nA local Ollama server on the notebook machine. Nothing "
-       "leaves it."),
+    md("""
+## 1 · Environment
+
+A local Ollama server on the notebook machine. Nothing leaves it, and no API key appears
+anywhere below.
+
+Two dependencies the Ollama installer needs and Kaggle's image does not ship: `zstd`,
+without which extraction fails outright, and `pciutils`, without which the installer
+cannot see the GPU and quietly installs the CPU-only build.
+"""),
     code(f"""
 import json, os, subprocess, sys, textwrap, time
+t0 = time.time()
 
-!pip install -q ollama pyyaml pytest 2>&1 | tail -1
-!curl -fsSL https://ollama.com/install.sh 2>/dev/null | sh > /dev/null 2>&1
+!apt-get -qq update > /dev/null 2>&1 && apt-get -qq install -y zstd pciutils > /dev/null 2>&1
+!curl -fsSL https://ollama.com/install.sh 2>/dev/null | sh 2>&1 | tail -2
 
 subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(8)
 
 MODEL = "{MODEL}"
-os.environ["GEMMA_MODEL"] = MODEL   # read by src/model.py
-!ollama pull {{MODEL}}
+os.environ["GEMMA_MODEL"] = MODEL          # read by src/model.py
+!ollama pull {{MODEL}} 2>&1 | tail -1
+
 print(subprocess.run(["ollama", "list"], capture_output=True, text=True).stdout)
+print(subprocess.run(["bash", "-lc", "nvidia-smi -L || echo 'no GPU - running on CPU'"],
+                     capture_output=True, text=True).stdout)
+print(f"environment ready in {{time.time() - t0:.0f}}s")
 """),
     code("""
 # The repo layout, rebuilt here so every cell below is the file it says it is.
 !mkdir -p src tests schemes
+# Both __init__.py files matter. Kaggle's image already has a `tests` package installed,
+# and a directory without __init__.py is only a namespace portion - the import scan keeps
+# going and the installed one wins. A regular package takes precedence.
 open("src/__init__.py", "w").close()
+open("tests/__init__.py", "w").close()
 sys.path.insert(0, ".")
 print("ok")
 """),
@@ -278,10 +295,36 @@ touching marriage or bereavement is a trap". Fixed by adding `ANSWER_FEWSHOT` �
 in the shape a real answer arrives in, with the question as context.
 
 | | recall | invention |
-|---|---|---|
+|---|---:|---:|
 | first run | 79.2% | 21.4% |
-| after the prompt and code fixes | 95.8% | 0% |
+| after the prompt rules, negative few-shots and the code backstop | 95.8% | 0% |
 | after `ANSWER_FEWSHOT` | **100%** | **0%** |
+
+### The number above may not be 100%, and that is the last finding
+
+Those figures come from six runs on a local machine, where they are stable. The cell you
+just ran, on Kaggle's P100, has also produced **95.8% / 0%** — one miss of
+`years_since_earner_death` on the opening narrative.
+
+Temperature is 0, so this is not sampling noise. It is the same weights on a different
+backend: different kernels, different quantisation arithmetic, a different order of
+operations. Temperature 0 buys determinism *within* a machine, not *across* machines, and
+anyone quoting a single extraction score without saying what it ran on is quoting a
+number about their laptop.
+
+Which is precisely the argument this project is built on. Look at what moved and what did
+not:
+
+- **Recall moved by one case.** A miss costs one extra question. The engine notices the
+  fact is still unknown and asks about it — the same thing it does for any other unknown.
+- **Invention stayed at 0% on both machines, on every run.** It is not held there by the
+  model behaving well today; it is held there by `coerce()` dropping anything outside the
+  vocabulary, dropping a zero income, and by the eligibility decision never being the
+  model's to make.
+
+A system whose safety depends on a model scoring the same on someone else's GPU does not
+have a safety property. The recall number is a cost estimate. The invention number is a
+guarantee, and it is a guarantee because it lives in code.
 """),
 
     md("""

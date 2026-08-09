@@ -50,6 +50,34 @@ itself a finding.
 | after prompt rules, negative few-shots, and the code backstop | 95.8% | 0% |
 | after `ANSWER_FEWSHOT` | **100%** | **0%** |
 
+Measured on a local machine (Apple silicon, Ollama), stable across six runs.
+
+### The same code scores differently on different hardware
+
+Run on Kaggle's Tesla P100, the final configuration scores **95.8% / 0%** — one miss of
+`years_since_earner_death` in `widow_narrative_hi`, from *"मेरे पति का पिछले साल देहांत हो
+गया"*. The `demo.py` run in the same session extracts it correctly from the same sentence.
+
+Temperature is 0, so this is not sampling noise. It is the same weights on a different
+backend: different kernels, different quantisation arithmetic, a different order of
+floating-point operations. **Temperature 0 gives determinism within a machine, not across
+machines.** An extraction score quoted without the hardware it ran on is a number about
+someone's laptop.
+
+What moved and what did not is the useful part:
+
+- **Recall moved by one case.** The cost of a miss is bounded and visible: the fact stays
+  unknown, so `next_question()` asks about it, exactly as it would for any other unknown.
+  The conversation gets one question longer.
+- **Invention was 0% on both machines, on every run.** That is not the model behaving well
+  on the day. It is `coerce()` dropping every field outside the vocabulary, `coerce()`
+  dropping a stated income of 0, and the eligibility decision never being the model's to
+  make.
+
+A safety property that depends on a model scoring the same on someone else's GPU is not a
+safety property. The recall number is a cost estimate; the invention number is a guarantee,
+and it is a guarantee only because it is enforced in code.
+
 ## The three failures, and what each one taught
 
 ### 1. `annual_income: 0` from "I don't know"

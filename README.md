@@ -115,6 +115,18 @@ Both numbers matter, in opposite directions, and invention is the one to watch. 
 the fixes above it read **79.2% recall / 21.4% invention** — the two inventions being the
 zero income and a mother-in-law's death recorded as the speaker's own widowhood.
 
+Those figures are from six runs on a local machine, where they are stable. The same code
+on Kaggle's P100 scores **95.8% / 0%**, missing `years_since_earner_death` once. Temperature
+is 0, so that is not sampling noise — it is the same weights on a different backend, and it
+means temperature 0 buys determinism within a machine, not across machines.
+
+What moved and what did not is the whole point. Recall moved by one case, and a miss costs
+one extra question: the engine sees the fact is still unknown and asks. Invention stayed at
+0% on both machines on every run — not because the model behaved, but because `coerce()`
+drops anything outside the vocabulary and drops a zero income, and because entitlement was
+never the model's call. The recall number is a cost estimate; the invention number is a
+guarantee, and it is one only because it lives in code.
+
 ## Why an open model, running locally
 
 Three constraints each independently rule out a hosted API:
