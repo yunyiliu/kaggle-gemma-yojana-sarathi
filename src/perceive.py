@@ -74,9 +74,10 @@ RULES:
   zero income passes every income limit there is.
 - Whose event it was matters. A death in the family is only applicant_is_widow if it was
   the speaker's husband, and only primary_earner_died if that person earned. A
-  mother-in-law, parent, or sibling dying gives you neither. People answer a different question than the one asked, especially when tired or
-  hard of hearing. Extract whatever they did say and leave the asked-about field out.
-  Returning {} is a correct answer.
+  mother-in-law, parent, or sibling dying gives you neither.
+- People answer a different question than the one asked, especially when tired or hard of
+  hearing. Extract whatever they did say and leave the asked-about field out. Returning
+  {} is a correct answer.
 
 Output the JSON object and nothing else."""
 

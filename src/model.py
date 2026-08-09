@@ -16,7 +16,7 @@ import os
 import urllib.error
 import urllib.request
 
-DEFAULT_MODEL = os.environ.get("GEMMA_MODEL", "gemma3:4b")
+DEFAULT_MODEL = os.environ.get("GEMMA_MODEL", "gemma4:e4b")
 DEFAULT_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 
 

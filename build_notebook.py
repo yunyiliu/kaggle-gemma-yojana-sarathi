@@ -14,7 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SLUG = "build-with-gemma-tfug-prayagraj-ai-prayagraj"
 REPO = "https://github.com/yunyiliu/kaggle-gemma-yojana-sarathi"
-MODEL = "gemma3:4b"
+MODEL = "gemma4:e4b"      # what ships
+ALT_MODEL = "gemma4:e2b"  # the smaller edge variant, measured against it in section 7
 
 _n = {"i": 0}
 
@@ -55,7 +56,9 @@ CELLS = [
 An offline tool that works out which welfare schemes a household can actually claim, by
 conducting the interview nobody currently has time to conduct.
 
-*Build with Gemma: TFUG Prayagraj \\[AI Prayagraj\\]* · **Code:** {REPO}
+Built on **Gemma 4 E4B**, running locally through Ollama.
+
+*Build with Gemma: TFUG Prayagraj \\[AI Prayagraj\\]* — GenAI for Good · **Code:** {REPO}
 
 ---
 
@@ -109,6 +112,10 @@ state's frontline workforce.
 Two dependencies the Ollama installer needs that Kaggle's image does not ship: `zstd`,
 without which extraction fails outright, and `pciutils`, without which the installer
 cannot see the GPU and quietly installs the CPU-only build.
+
+Both **Gemma 4 E-series** variants are pulled. E4B is what ships; E2B is measured against
+it in section 7, and the comparison turned out to be the most useful thing in this
+notebook.
 """),
     code(f"""
 import json, os, subprocess, sys, textwrap, time
@@ -120,9 +127,11 @@ t0 = time.time()
 subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(8)
 
-MODEL = "{MODEL}"
+MODEL = "{MODEL}"          # what ships
+ALT_MODEL = "{ALT_MODEL}"      # the smaller edge variant, measured against it in section 7
 os.environ["GEMMA_MODEL"] = MODEL          # read by src/model.py
 !ollama pull {{MODEL}} 2>&1 | tail -1
+!ollama pull {{ALT_MODEL}} 2>&1 | tail -1
 
 print(subprocess.run(["ollama", "list"], capture_output=True, text=True).stdout)
 print(subprocess.run(["bash", "-lc", "nvidia-smi -L || echo 'no GPU - running on CPU'"],
@@ -270,7 +279,52 @@ things that must **not** become fields. Two scores, pulling opposite ways:
 """),
     filecell("tests/perception_cases.py"),
     filecell("scripts_eval.py"),
-    code('!python scripts_eval.py --runs 2'),
+    code(f'!GEMMA_MODEL={MODEL} python scripts_eval.py --runs 2'),
+
+    md(f"""
+### Which Gemma 4, and the thing that fell out of asking
+
+Both E-series variants were run against the same set. The interesting result was not which
+one won.
+
+**E2B invented a field.** Asked *"क्या घर में कोई मोटर वाहन है?"* — does the household own
+a vehicle — and answered *"पैंतीस साल।"* — thirty-five years — it wrote
+`owns_motor_vehicle: False`. That is a household recorded as vehicle-free on the strength
+of somebody stating their age, and `owns_motor_vehicle: False` is a **pass** on a PMAY-G
+housing rule. E4B, same prompt, same case, left the field alone. Reproducible across three
+runs.
+
+My first move was the obvious one: add a negative few-shot showing exactly that shape.
+**It changed nothing** — E2B still invented it, and I removed the example again rather than
+keep an unearned line in the prompt.
+
+The actual cause was in the prompt all along. The rule *"people answer a different question
+than the one asked — extract what they did say and leave the asked-about field out"* had
+been appended to the tail of an unrelated bullet about whose bereavement it was, with no
+bullet of its own. **E4B applied it anyway. E2B did not.** Giving it its own line fixed
+E2B and changed nothing for E4B.
+
+So the measurable difference between these two models, on this task, was not accuracy. It
+was **how much slack they leave for a defective prompt** — and the larger one had been
+quietly covering for a formatting bug I did not know I had.
+
+Cell below: the smaller variant, same set, after the fix.
+"""),
+    code(f'!GEMMA_MODEL={ALT_MODEL} python scripts_eval.py --runs 2'),
+
+    md(f"""
+| | recall | invention | 26 extractions |
+|---|---:|---:|---:|
+| **Gemma 4 E4B** — ships | 100% | 0% | 88 s |
+| Gemma 4 E2B — after the prompt fix | 100% | 0% | 40 s |
+| Gemma 4 E2B — before it | 100% | **7.1%** | 40 s |
+
+E4B ships. On a 13-case set the two are tied, and a tie on thirteen cases is not
+equivalence — E4B is the one that held up when the prompt was wrong, and at a doorstep the
+binding constraint is the person's time, not 2 seconds of inference. E2B stays supported
+(`GEMMA_MODEL=gemma4:e2b`) and is the right call on a phone, now that the defect it was
+exposing is fixed.
+"""),
 
     md("""
 ### The three failures this caught
@@ -298,32 +352,34 @@ interview would have moved on — right answer, broken mechanism, no way to noti
 adding answer-shaped few-shots (`ANSWER_FEWSHOT`), which teach distrust of an unsupported
 *inference* rather than distrust of a *topic*.
 
-### The same code scores differently on different hardware
+### How the score got here, and one caveat about reading it
 
 | | recall | invention |
 |---|---:|---:|
 | first run | 79.2% | 21.4% |
-| after the prompt rules and the code backstop | 95.8% | 0% |
-| after `ANSWER_FEWSHOT`, six local runs | **100%** | **0%** |
-| **the cell above, on Kaggle's P100** | **95.8%** | **0%** |
+| after the prompt rules and the `coerce()` backstop | 95.8% | 0% |
+| after `ANSWER_FEWSHOT` | **100%** | **0%** |
 
-Temperature is 0, so the last row is not sampling noise. It is the same weights on a
-different backend — different kernels, different quantisation arithmetic, a different
-order of operations. Temperature 0 buys determinism *within* a machine, not *across*
-machines, and anyone quoting an extraction score without saying what it ran on is quoting
-a number about their laptop.
+An earlier build of this project ran on Gemma 3 4B, and there the identical code scored
+100% on a local machine and 95.8% on Kaggle's GPU — at temperature 0, so not sampling
+noise, just the same weights on a different backend. **Temperature 0 buys determinism
+within a machine, not across machines.** An extraction score quoted without the hardware
+behind it is a number about somebody's laptop.
 
-What moved and what did not is the point:
+That is worth keeping in view while reading the cells above, and it is the reason the two
+metrics are not interchangeable:
 
-- **Recall moved by one case**, and the cost is bounded and visible — the field stays
-  unknown, so the engine asks about it, exactly as it would for any other unknown.
-- **Invention stayed at 0% on both machines, on every run.** Not because the model behaved
-  well today, but because it is enforced in `coerce()` and because entitlement was never
-  the model's to decide.
+- **Recall can drift**, and the cost is bounded and visible — a missed field stays
+  unknown, so the engine asks about it, exactly as it would for any other unknown. One
+  extra question.
+- **Invention has been 0% on every model, every machine, every run** — including the
+  E2B build that *was* inventing, because even then the invention was a legal value for a
+  declared field, and everything illegal is dropped by `coerce()` before the engine ever
+  sees it.
 
 A safety property that depends on a model scoring the same on somebody else's GPU is not a
-safety property. The recall number is a cost estimate. The invention number is a
-guarantee, and only because it does not depend on the model.
+safety property. The recall number is a cost estimate; the invention number is closer to a
+guarantee, and only because the parts that enforce it are not the model.
 """),
 
     md("""

@@ -5,7 +5,14 @@
 An offline tool that works out which welfare schemes a household can actually claim, by
 conducting the interview that nobody currently has time to conduct.
 
-Built for *Build with Gemma: TFUG Prayagraj [AI Prayagraj]*.
+Built on **Gemma 4 E4B**, running locally through Ollama. Built for *Build with Gemma:
+TFUG Prayagraj [AI Prayagraj]* — GenAI for Good track.
+
+Gemma 4 does two things here, and both are measured rather than asserted: it turns free
+Hindi / Hinglish / English speech into structured fields (§ *How well the extraction
+actually works*), and it writes the final message, checklist and reasoning back out in the
+person's language. Choosing between the two E-series variants turned up the most useful
+finding in the project — see *Which Gemma 4*.
 
 ---
 
@@ -158,11 +165,47 @@ Two numbers, pulling opposite ways. Before the fixes above it read **79.2% / 21.
 inventions being the zero income and a mother-in-law's death recorded as the speaker's own
 widowhood.
 
-### The same code scores differently on different hardware
+### Which Gemma 4, and the thing that fell out of asking
 
-Those figures are six stable runs on a local machine. On Kaggle's P100 the same code
-scores **95.8% / 0%**, missing `years_since_earner_death` once. Temperature is 0, so that
-is not sampling noise — it is the same weights on a different backend.
+Both E-series variants were run against the same set, and the interesting result was not
+which one won.
+
+**E2B invented a field.** Asked *"क्या घर में कोई मोटर वाहन है?"* — does the household own a
+vehicle — and answered *"पैंतीस साल।"* — thirty-five years — it wrote
+`owns_motor_vehicle: False`. A household recorded as vehicle-free because somebody stated
+their age, and that `False` is a *pass* on a PMAY-G housing rule. E4B, same prompt, same
+case, left the field alone. Reproducible across three runs.
+
+The obvious fix was a negative few-shot showing that exact shape. **It changed nothing**,
+so I took it back out rather than keep an unearned line in the prompt.
+
+The cause was in the prompt all along: the rule *"people answer a different question than
+the one asked — extract what they did say and leave the asked-about field out"* had been
+appended to the tail of an unrelated bullet about whose bereavement it was, without a
+bullet of its own. **E4B applied it anyway. E2B did not.** Giving it its own line fixed E2B
+and changed nothing for E4B.
+
+The measurable difference between these two models on this task was not accuracy. It was
+**how much slack they leave for a defective prompt**, and the larger one had been quietly
+covering for a formatting bug I did not know I had.
+
+| | recall | invention | 26 extractions |
+|---|---:|---:|---:|
+| **Gemma 4 E4B** — ships | 100% | 0% | 88 s |
+| Gemma 4 E2B — after the prompt fix | 100% | 0% | 40 s |
+| Gemma 4 E2B — before it | 100% | **7.1%** | 40 s |
+
+E4B ships. The two are tied on thirteen cases, and a tie on thirteen cases is not
+equivalence — E4B is the one that held up when the prompt was wrong, and at a doorstep the
+binding constraint is the person's time, not two seconds of inference. E2B stays supported
+via `GEMMA_MODEL=gemma4:e2b` and is the right call on a phone now that the defect it
+exposed is fixed.
+
+### One caveat on reading any of these numbers
+
+An earlier build ran on Gemma 3 4B, where the identical code scored 100% locally and
+95.8% on Kaggle's GPU. Temperature is 0, so that was not sampling noise — the same weights
+on a different backend.
 
 What moved and what did not is the useful part. Recall moved by one case, and the cost is
 bounded and visible: the field stays unknown, so the engine asks about it. Invention was
@@ -208,12 +251,14 @@ state's frontline workforce.
 
 ```bash
 ollama serve &
-ollama pull gemma3:4b
+ollama pull gemma4:e4b     # what ships
+ollama pull gemma4:e2b     # the smaller edge variant, for the comparison below
 
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pytest tests -q        # 49 tests, no model needed
 .venv/bin/python scripts_ask.py            # the interview measurement, no model needed
 .venv/bin/python scripts_eval.py --runs 2  # the extraction measurement
+GEMMA_MODEL=gemma4:e2b .venv/bin/python scripts_eval.py --runs 2   # the other variant
 .venv/bin/python demo.py                   # one conversation, end to end
 ```
 
