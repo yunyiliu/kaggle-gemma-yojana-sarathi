@@ -361,10 +361,15 @@ adding answer-shaped few-shots (`ANSWER_FEWSHOT`), which teach distrust of an un
 | after `ANSWER_FEWSHOT` | **100%** | **0%** |
 
 An earlier build of this project ran on Gemma 3 4B, and there the identical code scored
-100% on a local machine and 95.8% on Kaggle's GPU — at temperature 0, so not sampling
-noise, just the same weights on a different backend. **Temperature 0 buys determinism
-within a machine, not across machines.** An extraction score quoted without the hardware
-behind it is a number about somebody's laptop.
+100% on a local machine and 95.8% on this same Kaggle GPU — at temperature 0, so not
+sampling noise, just the same weights on a different backend. **Temperature 0 buys
+determinism within a machine, not across machines.** An extraction score quoted without
+the hardware behind it is a number about somebody's laptop.
+
+Both Gemma 4 variants held at 100% / 0% on both machines, which is a point in their favour
+and not one I would have found without having been burned by the Gemma 3 build first. It
+is still thirteen cases: enough to catch a systematic failure, not enough to promise
+anybody cross-backend stability.
 
 That is worth keeping in view while reading the cells above, and it is the reason the two
 metrics are not interchangeable:

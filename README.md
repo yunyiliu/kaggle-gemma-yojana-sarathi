@@ -205,7 +205,9 @@ exposed is fixed.
 
 An earlier build ran on Gemma 3 4B, where the identical code scored 100% locally and
 95.8% on Kaggle's GPU. Temperature is 0, so that was not sampling noise — the same weights
-on a different backend.
+on a different backend. Both Gemma 4 variants held at 100% / 0% on both machines, which is
+a point in their favour and not one I would have found without being burned by the Gemma 3
+build first.
 
 What moved and what did not is the useful part. Recall moved by one case, and the cost is
 bounded and visible: the field stays unknown, so the engine asks about it. Invention was
