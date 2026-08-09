@@ -1,0 +1,212 @@
+# Welfare scheme eligibility rules.
+#
+# This file is the part of the system that decides entitlement, and it is deliberately
+# not the model's job.  Every rule below is a line a caseworker or an auditor can read
+# and check against the published scheme guidelines, and every decision the tool makes
+# traces back to one of them.
+#
+# `source` is the document a rule comes from.  These are transcribed from publicly
+# published scheme guidelines for a prototype and would need a programme officer's
+# sign-off against the current circulars before any real use - thresholds in particular
+# are revised by notification and vary by state.
+#
+# Fact vocabulary (what the perception step is allowed to emit) is fixed in
+# src/facts.py; a rule may only reference names declared there.
+
+meta:
+  version: "0.1-prototype"
+  state: "Uttar Pradesh"
+  currency: INR
+  disclaimer: >
+    Prototype. Thresholds and rules are transcribed from published guidance to
+    demonstrate an auditable architecture. Not a substitute for the official
+    eligibility determination made by the implementing department.
+
+schemes:
+
+  - id: pmay_g
+    name_en: Pradhan Mantri Awaas Yojana - Gramin
+    name_hi: प्रधानमंत्री आवास योजना - ग्रामीण
+    what_en: Assistance to build a pucca house.
+    benefit_en: "₹1,20,000 in instalments (plain areas), plus MGNREGA labour days"
+    source: "PMAY-G Framework for Implementation, Ministry of Rural Development"
+    rules:
+      - fact: residence
+        op: eq
+        value: rural
+      - fact: house_type
+        op: in
+        value: [none, kutcha]
+      - fact: owns_motor_vehicle
+        op: eq
+        value: false
+      - fact: monthly_income
+        op: lte
+        value: 15000
+        note: "Auto-inclusion via SECC deprivation criteria; income proxy used here"
+    documents:
+      - Aadhaar card of the applicant
+      - Job card (MGNREGA)
+      - Bank account passbook (account must be in the applicant's name)
+      - Consent for Aadhaar seeding
+    where: Gram Panchayat / Block Development Office
+
+  - id: nfbs
+    name_en: National Family Benefit Scheme
+    name_hi: राष्ट्रीय परिवार लाभ योजना
+    what_en: One-time grant to a BPL household after the death of its primary earner.
+    benefit_en: "₹30,000 one-time"
+    source: "National Social Assistance Programme (NSAP) guidelines, Ministry of Rural Development"
+    rules:
+      - fact: primary_earner_died
+        op: eq
+        value: true
+      - fact: years_since_earner_death
+        op: lte
+        value: 3
+        note: "Application window; states commonly allow up to 3 years"
+      - fact: deceased_age_at_death
+        op: between
+        value: [18, 60]
+      - fact: bpl
+        op: eq
+        value: true
+    documents:
+      - Death certificate of the deceased earner
+      - BPL ration card
+      - Aadhaar card of the applicant
+      - Bank account passbook
+    where: District Social Welfare Office / Tehsil
+
+  - id: widow_pension
+    name_en: Widow Pension (Uttar Pradesh)
+    name_hi: निराश्रित महिला पेंशन
+    what_en: Monthly pension for a destitute widow.
+    benefit_en: "₹1,000 per month"
+    source: "UP Directorate of Social Welfare - Nirashrit Mahila Pension"
+    rules:
+      - fact: applicant_is_widow
+        op: eq
+        value: true
+      - fact: applicant_age
+        op: gte
+        value: 18
+      - fact: annual_income
+        op: lte
+        value: 60000
+        note: "Rural ceiling; the urban ceiling differs by notification"
+      - fact: remarried
+        op: eq
+        value: false
+    documents:
+      - Death certificate of the husband
+      - Aadhaar card
+      - Income certificate (Tehsil)
+      - Bank account passbook
+      - Passport photograph
+    where: Block office / online at sspy-up.gov.in
+
+  - id: kanya_sumangala
+    name_en: Mukhyamantri Kanya Sumangala Yojana
+    name_hi: मुख्यमंत्री कन्या सुमंगला योजना
+    what_en: Staged payments to families for the education and welfare of a girl child.
+    benefit_en: "₹25,000 total, paid across six life stages"
+    source: "UP Department of Women & Child Development, Kanya Sumangala guidelines"
+    rules:
+      - fact: has_girl_child
+        op: eq
+        value: true
+      - fact: annual_income
+        op: lte
+        value: 300000
+      - fact: girl_children_count
+        op: lte
+        value: 2
+        note: "Benefit is limited to two girls per family"
+    documents:
+      - Birth certificate of the girl child
+      - Aadhaar of parent and child
+      - Income certificate
+      - Bank account passbook of the parent
+    where: Anganwadi centre / online at mksy.up.gov.in
+
+  - id: pm_kisan
+    name_en: PM Kisan Samman Nidhi
+    name_hi: पीएम किसान सम्मान निधि
+    what_en: Income support for landholding farmer families.
+    benefit_en: "₹6,000 per year in three instalments"
+    source: "PM-KISAN Operational Guidelines, Ministry of Agriculture"
+    rules:
+      - fact: owns_farmland
+        op: eq
+        value: true
+      - fact: is_income_tax_payer
+        op: eq
+        value: false
+      - fact: holds_government_post
+        op: eq
+        value: false
+    documents:
+      - Land record (khatauni / khasra)
+      - Aadhaar card
+      - Bank account passbook
+    where: Lekhpal / CSC centre / pmkisan.gov.in
+
+  - id: ayushman
+    name_en: Ayushman Bharat - PM-JAY
+    name_hi: आयुष्मान भारत
+    what_en: Cashless hospital cover for the family.
+    benefit_en: "₹5,00,000 per family per year, secondary and tertiary care"
+    source: "PM-JAY beneficiary identification guidelines, National Health Authority"
+    rules:
+      - fact: bpl
+        op: eq
+        value: true
+    documents:
+      - Ration card
+      - Aadhaar card of each family member to be covered
+    where: Ayushman Mitra desk at any empanelled hospital / CSC
+
+  - id: old_age_pension
+    name_en: Old Age Pension (Uttar Pradesh)
+    name_hi: वृद्धावस्था पेंशन
+    what_en: Monthly pension for elderly persons below the poverty line.
+    benefit_en: "₹1,000 per month"
+    source: "UP Directorate of Social Welfare - Vridhavastha Pension"
+    rules:
+      - fact: applicant_age
+        op: gte
+        value: 60
+      - fact: annual_income
+        op: lte
+        value: 56460
+        note: "Rural ceiling per current notification"
+    documents:
+      - Aadhaar card
+      - Age proof
+      - Income certificate
+      - Bank account passbook
+    where: Block office / sspy-up.gov.in
+
+  - id: scholarship_pre_matric
+    name_en: Pre-Matric Scholarship
+    name_hi: पूर्वदशम छात्रवृत्ति
+    what_en: Fee reimbursement and maintenance allowance for school students.
+    benefit_en: "Fee reimbursement plus maintenance allowance, varies by class"
+    source: "UP Samaj Kalyan Vibhag scholarship guidelines"
+    rules:
+      - fact: has_school_age_child
+        op: eq
+        value: true
+      - fact: child_in_school
+        op: eq
+        value: true
+      - fact: annual_income
+        op: lte
+        value: 200000
+    documents:
+      - School enrolment certificate
+      - Caste certificate (if applying under a reserved category)
+      - Income certificate
+      - Aadhaar and bank passbook of the student
+    where: The child's school / scholarship.up.gov.in
