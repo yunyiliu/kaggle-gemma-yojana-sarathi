@@ -1,108 +1,151 @@
 # योजना सारथी · Yojana Sarathi
 
-**An offline welfare-entitlement navigator, where Gemma fills in the form and plain code
-decides who qualifies.**
+**The scheme is not the hard part. The interview is.**
+
+An offline tool that works out which welfare schemes a household can actually claim, by
+conducting the interview that nobody currently has time to conduct.
 
 Built for *Build with Gemma: TFUG Prayagraj [AI Prayagraj]*.
 
 ---
 
-## The problem
+## The gap this sits in
 
-India runs hundreds of welfare schemes. A large share of the money set aside for them is
-never claimed, and the reason is rarely that people are unwilling. It is that nobody at
-the doorstep knows which of the hundreds apply to *this* household, what documents each
-needs, and which office to walk to. The people with the strongest claim — a widow with no
-income, an elderly person living alone — are the least likely to be able to read the
-guidelines that describe their own entitlement.
+Uttar Pradesh publishes its welfare schemes. The eligibility rules are not secret, and
+they are not subtle: an age, an income ceiling, a ration-card category, whether the roof
+is thatch or concrete. Anyone who sat down with the circulars and a household for an hour
+could work out precisely what that household is owed.
 
-The decision is not really a judgement call. Eligibility is written down: age thresholds,
-income ceilings, whether the house is kutcha, whether the ration card is BPL. It is
-gatekeeping by paperwork, not by discretion.
+Nobody has the hour.
 
-What is missing is a way to get from *how a person describes their life* to *which written
-rules that satisfies* — and to do it where the person is, without uploading their
-bereavement and income to anyone's API.
+A frontline worker visiting a village has a queue behind her. The household in front of
+her has a harvest to get in, or a child to collect. The full fact set that decides these
+eight schemes is twenty-one fields long — and asked as a form, in form order, most of
+those questions are dead weight for any particular household. So the interview does not
+happen, and the entitlement stays theoretical.
 
-## What this does
+That is the actual failure, and it is not a knowledge problem. It is a **triage problem
+under a time budget**, and it is the one this project attacks.
+
+## The result that matters
+
+`next_question()` picks what to ask by scoring each unknown field against the money it
+would unlock — the benefit currently sitting in *undecided* that knowing this one fact
+would resolve, divided across whatever else each scheme is still waiting on.
+
+That is a claim about an algorithm, so it is measured, on eight complete households, with
+no model in the loop at all:
 
 ```
-She says (Hindi / Hinglish / English)
-  "मेरे पति का पिछले साल देहांत हो गया। दो बेटियाँ स्कूल जाती हैं। कच्चा घर है।"
-        │
-        ▼   Gemma 4  ·  PERCEPTION
-  {applicant_is_widow: true, primary_earner_died: true, years_since_earner_death: 1,
-   has_school_age_child: true, child_in_school: true, house_type: "kutcha", ...}
-        │
-        ▼   schemes.yaml + engine.py  ·  DECISION   (no model here)
-  eligible / ineligible / UNCERTAIN, and for each uncertain one, exactly what is missing
-        │
-        ▼   engine.py  ·  WHAT TO ASK NEXT
-  the single fact whose answer resolves the most benefit  →  one question, not twenty
-        │
-        ▼   Gemma 4  ·  ACTION
-  a message in her language, a document checklist deduplicated across schemes,
-  and an audit trail a caseworker can check line by line
+$ python scripts_ask.py
+
+Fraction of the household's true entitlement already secured after k questions
+
+  k                1      2      3      4      5      6      7      8
+  -------------------------------------------------------------------
+  benefit        52%    52%    52%    52%    59%    68%    69%    70%
+  coverage        0%    52%    52%    52%    52%    64%    69%    69%
+  fixed           0%     0%     0%    52%    62%    62%    62%    64%
+  random          4%     7%    10%    13%    15%    19%    22%    27%
 ```
 
-After **8 questions**, the walkthrough in `demo.py` takes a widow in a village from
-"I don't know what I'm entitled to" to six schemes worth about **₹6.75 lakh plus ₹1,000 a
-month**, with the reason for every inclusion and exclusion written down.
+**After a single question, the shipped strategy has established just over half of what the
+average household is owed.** A paper form, asking the same fields in a fixed order, has
+established nothing until question four.
 
-## The design decision everything else follows from
+This matters because interviews get abandoned. Someone is called away, a queue moves, a
+child starts crying. What you have secured when the conversation stops is the whole
+product.
 
-**Gemma never decides eligibility.**
+### The ablation is the honest part
 
-The costs here are asymmetric in both directions and neither is acceptable. Tell someone
-they qualify when they do not, and they spend a day's wage and a bus fare on a counter
-that turns them away. Tell them they do not qualify when they do, and they lose money
-they are owed, possibly for years, with no way to find out. Neither error is one to hand
-to a model that cannot show its working.
+`coverage` asks whichever question unblocks the most schemes, ignoring what they are
+worth. It ties the shipped strategy on interview *length* — 11.6 questions to a final
+answer, against 13.2 for form order — and it is worth nothing at question one.
 
-So the model is given the job it is genuinely good at — turning Awadhi-inflected Hindi,
-code-mixed English, bighas and *lakhs* into structured fields — and none of the job where
-being confidently wrong is expensive. Between the two model calls sits `schemes/schemes.yaml`,
-which a programme officer can read line by line against the published guidelines.
+So the benefit weighting is not what makes the interview short. Asking a *relevant*
+question does that, and counting schemes is enough. The weighting does something else and
+narrower: it decides **which** half of the money you walk away with if the conversation
+ends early. That is the claim the table supports, and it is the only claim it supports.
 
-This is also why a 4B model is enough. It is never asked to reason about entitlement.
+And ordering is only allowed to touch the person's time. `test_question_order_never_changes_the_conclusion`
+runs all four strategies over all eight households and asserts they land on the same
+answer every time.
 
-## Three things that are not obvious until you build it
+## Rules are data
 
-**1. "She didn't say" and "she said no" cannot be the same value.**
+Every threshold lives in `schemes/schemes.yaml`, cites the document it came from, and is
+read by ordinary Python:
 
-Every fact is tri-state. A missing fact becomes a *question*; only an explicit denial
-becomes `False`. Collapsing the two is precisely how a benefits system quietly denies
-people things — the interview stops early and the tool reports "not eligible" when the
-truthful answer was "we never asked".
+```yaml
+- id: nfbs
+  name_en: National Family Benefit Scheme
+  benefit_en: ₹30,000 one-time
+  source: NSAP Programme Guidelines, Ministry of Rural Development
+  rules:
+    - {fact: primary_earner_died, op: eq, value: true}
+    - {fact: years_since_earner_death, op: lte, value: 3}
+    - {fact: deceased_age_at_death, op: between, value: [18, 60]}
+    - {fact: bpl, op: eq, value: true}
+```
 
-The evaluation caught the model doing this: a flat "नहीं" to *have you remarried?* came
-back as no fact at all rather than `remarried: false`. Fixed by showing it answer-shaped
-examples (`ANSWER_FEWSHOT` in `src/perceive.py`).
+Adding a scheme is a YAML entry. A rule that references a field the vocabulary does not
+declare fails at load, loudly — because the alternative is a scheme that silently never
+matches anybody, which is invisible in testing and denies people money in production.
 
-**2. The engine chooses the question, not the model.**
+`evaluate()` returns three outcomes rather than two. **Uncertain** — nothing has failed,
+but a rule cannot be checked yet — is not a rounding error on the way to "no". It is the
+thing that generates the next question, and a tool that collapses it into "no" is a tool
+that closes the interview early and reports that someone does not qualify when the honest
+answer was that nobody asked.
 
-After each answer, `next_question()` recomputes what is still undecided and names the one
-fact whose value would resolve the most benefit — weighted by the money at stake and by
-how close each scheme is to a decision. Starting from nothing it asks about the BPL card
-first, because that single fact gates ₹30,000 *and* a ₹5,00,000 health cover.
+## Why the fields are tri-state
 
-A person seeking help has limited time and patience. A question that cannot change any
-answer spends both for nothing.
+Every field is `True`, `False`, or unknown, and the distinction is load-bearing precisely
+*because* the interview is the product: an unknown field is a question to ask, a `False`
+is an answer already given. Collapse them and the engine stops asking about things nobody
+ever raised.
 
-**3. An unstated zero is more dangerous than a wrong number.**
+This is not theoretical. The evaluation caught the model returning nothing at all for a
+flat *"नहीं"* to *have you remarried?* instead of `remarried: false`. Had unknown and
+False been the same value, that bug would have been invisible: the field would have read
+`False`, the pension would have been granted, the interview would have moved on. Right
+answer, broken mechanism, no way to notice.
 
-Asked "how much do you earn", a person said *"pata nahi, kabhi kuch kabhi kuch"* — I don't
-know, it varies. The model returned `annual_income: 0`. Zero satisfies every income
-ceiling in the file, so that one hallucination would have granted every income-tested
-scheme on the list. Fixed in the prompt, and then again in code, because a prompt is a
-request and this needed a guarantee.
+## Where the model sits, and where it does not
 
-## How well does the perception step actually work
+Two narrow jobs, both at the edges:
 
-Most of the risk lives in one place: what the model writes into the form. So it is
-measured rather than demonstrated. `tests/perception_cases.py` holds 13 hand-labelled
-utterances covering code-mixed speech, *bighas* and *lakhs*, answers that address a
-different question than the one asked, and explicit denials.
+**In:** free speech → fields. Hindi, Hinglish, English, *bighas*, *lakhs*, "साल भर में
+चालीस हज़ार". This is genuinely hard and genuinely what a language model is for.
+
+**Out:** a decision already made → a message in the person's language, plus a document
+checklist and an audit trail.
+
+Between them, nothing. The engine does not accept a scheme from the model, a threshold
+from the model, or a field the vocabulary does not declare — `coerce()` drops anything
+outside it. The output is checked afterwards for schemes nobody evaluated.
+
+This is enforcement, not instruction. A prompt is a request; the boundary between a
+language model and a decision about somebody's pension needs something stronger than a
+polite request.
+
+### An unstated zero is worse than a wrong number
+
+Asked what the household earns, a person said *"pata nahi, kabhi kuch kabhi kuch"* — I
+don't know, it varies. The model wrote `annual_income: 0`.
+
+Zero passes every income ceiling in the file. That one hallucination would have granted
+every income-tested scheme on the list and sent someone to a counter that will check. It
+is fixed in the prompt, and then again in `coerce()`, which drops a stated income of zero
+with a warning. If a household genuinely has no income, that is a BPL card and a
+zero-income certificate — not a number inferred from a shrug.
+
+## How well the extraction actually works
+
+`tests/perception_cases.py` holds 13 hand-labelled utterances: code-mixed speech, local
+units, regional number words, answers that address a different question than the one
+asked, explicit denials, and two things that must *not* become fields.
 
 ```
 $ python scripts_eval.py --runs 2
@@ -111,75 +154,111 @@ recall    24/24 = 100.0%    a miss costs one extra question
 invention  0/14 =   0.0%    an invention decides an entitlement nobody stated
 ```
 
-Both numbers matter, in opposite directions, and invention is the one to watch. Before
-the fixes above it read **79.2% recall / 21.4% invention** — the two inventions being the
-zero income and a mother-in-law's death recorded as the speaker's own widowhood.
+Two numbers, pulling opposite ways. Before the fixes above it read **79.2% / 21.4%** — the
+inventions being the zero income and a mother-in-law's death recorded as the speaker's own
+widowhood.
 
-Those figures are from six runs on a local machine, where they are stable. The same code
-on Kaggle's P100 scores **95.8% / 0%**, missing `years_since_earner_death` once. Temperature
-is 0, so that is not sampling noise — it is the same weights on a different backend, and it
-means temperature 0 buys determinism within a machine, not across machines.
+### The same code scores differently on different hardware
 
-What moved and what did not is the whole point. Recall moved by one case, and a miss costs
-one extra question: the engine sees the fact is still unknown and asks. Invention stayed at
-0% on both machines on every run — not because the model behaved, but because `coerce()`
-drops anything outside the vocabulary and drops a zero income, and because entitlement was
-never the model's call. The recall number is a cost estimate; the invention number is a
-guarantee, and it is one only because it lives in code.
+Those figures are six stable runs on a local machine. On Kaggle's P100 the same code
+scores **95.8% / 0%**, missing `years_since_earner_death` once. Temperature is 0, so that
+is not sampling noise — it is the same weights on a different backend.
 
-## Why an open model, running locally
+What moved and what did not is the useful part. Recall moved by one case, and the cost is
+bounded and visible: the field stays unknown, so the engine asks about it. Invention was
+0% on both machines on every run — not because the model behaved, but because it is
+enforced in code.
 
-Three constraints each independently rule out a hosted API:
+A safety property that depends on a model scoring the same on somebody else's GPU is not a
+safety property. The recall number is a cost estimate; the invention number is a guarantee,
+and it is one only because it does not depend on the model.
 
-1. **The data is not ours to send.** A household's bereavement, income, and caste details
-   are about as sensitive as personal data gets.
-2. **Connectivity is worst where need is highest.** A tool that requires a network fails
-   at exactly the doorstep it was built for.
-3. **Per-token billing does not survive contact with a public programme.** Cost per
-   query × a lakh of frontline workers × a daily visit schedule is not adoptable.
+## What comes out at the end
 
-The default backend is a local Ollama server. No API key appears anywhere in this repo.
+Beyond the list of schemes:
 
-## Running it
+**A document checklist collapsed across schemes.** Six applications ask for Aadhaar under
+five different phrasings; the checklist says *Aadhaar card* once, and orders the list by
+how many applications each document unlocks, because a trip to the Tehsil for an income
+certificate can cost a day.
+
+**An audit trail per decision**, down to the rule and the circular it came from:
+
+```
+Pradhan Mantri Awaas Yojana - Gramin [pmay_g] -> ELIGIBLE
+  source: PMAY-G Framework for Implementation, Ministry of Rural Development
+  [PASS] residence='rural' ok (eq rural)
+  [PASS] house_type='kutcha' ok (in ['none', 'kutcha'])
+  [PASS] owns_motor_vehicle=False ok (eq False)
+  [PASS] monthly_income=3000.0 ok (lte 15000)
+```
+
+An exclusion nobody can trace is an exclusion nobody can appeal, so every ineligible
+scheme names the rule that ruled it out, and a test asserts it.
+
+## Running locally, and why
+
+The backend is an Ollama server on `localhost`. There is no API key in this repository
+and no request leaves the machine.
+
+That is not a preference. A household's bereavement, income and caste are the details this
+tool exists to collect, and they belong to the household. Connectivity is thinnest exactly
+where the need is greatest. And a per-query bill does not survive being multiplied by a
+state's frontline workforce.
 
 ```bash
-ollama serve &            # in another terminal
+ollama serve &
 ollama pull gemma3:4b
 
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest tests -q     # 27 tests, no model needed
-.venv/bin/python demo.py                # the full walkthrough
-.venv/bin/python scripts_eval.py --runs 2   # perception measurement
+.venv/bin/python -m pytest tests -q        # 49 tests, no model needed
+.venv/bin/python scripts_ask.py            # the interview measurement, no model needed
+.venv/bin/python scripts_eval.py --runs 2  # the extraction measurement
+.venv/bin/python demo.py                   # one conversation, end to end
 ```
 
-The test suite runs without a model. That is deliberate: the component that can deny
-someone a pension is ordinary Python with ordinary tests, and none of its behaviour
-depends on what a language model felt like emitting today.
+Two of those four need no model at all. Everything that can deny someone a pension is in
+that half.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `schemes/schemes.yaml` | The rules. Every scheme cites the document it came from. |
-| `src/facts.py` | The closed vocabulary the model may emit, and how to ask about each field. |
+| `schemes/schemes.yaml` | The rules, each citing its source document. |
+| `src/facts.py` | The closed vocabulary, and how to ask about each field. |
 | `src/engine.py` | Eligibility, and the choice of what to ask next. **No model.** |
-| `src/perceive.py` | Speech → facts. Schema-bounded; anything outside the vocabulary is dropped. |
-| `src/explain.py` | Decision → words. Content assembled in code, wording generated, output verified. |
-| `src/session.py` | The loop. |
-| `scripts_eval.py` | Perception measurement. |
+| `src/perceive.py` | Speech → fields. Schema-bounded; anything else is dropped. |
+| `src/explain.py` | Decision → words, checklist, audit trail. |
+| `src/session.py` | The interview loop. |
+| `scripts_ask.py` | Measures the interview. |
+| `scripts_eval.py` | Measures the extraction. |
+| `tests/households.py` | Eight complete households with hand-derived answers. |
 
-## Limits, stated plainly
+## Limits
 
-- **Prototype, not an eligibility determination.** Thresholds are transcribed from
-  published guidance to demonstrate an auditable architecture. They are revised by
-  notification and vary by state, and every line needs a programme officer's sign-off
-  against the current circulars before any real use.
-- **8 schemes**, chosen to cover the common situations of a rural UP household. The rule
-  file is the extension point; adding a scheme is a YAML entry, not a code change.
-- **Hindi and English measured; other languages untested.** Gemma supports many more, but
-  a claim without a labelled set behind it is not a claim.
-- **The `verify_no_new_schemes` check is exact-match**, so it catches a model volunteering
-  a scheme by name and would miss a paraphrase. It is a backstop, not the safeguard — the
-  factual content is assembled in code.
-- **No live form submission.** The tool tells a person what to bring and where to go; it
-  does not file anything on their behalf.
+- **Nobody's entitlement is decided here.** The thresholds in this repository were read
+  off published scheme guidance so the engine would have something concrete to check. They
+  are revised by notification and differ between states, and a programme officer would have
+  to reconcile every line against the current circulars before this went near a real
+  household.
+- **8 schemes and 8 households.** Enough to catch a systematic failure and a regression;
+  not a confidence interval. The rule file is the extension point.
+- **Hindi and English are measured. Other languages are not.** Gemma supports more; a
+  claim with no labelled set behind it is not a claim.
+- **Written input, not spoken.** Real deployment goes through ASR, which adds its own
+  errors upstream of everything measured here.
+- **`verify_no_new_schemes` is exact-match**, so it catches a model naming a scheme it
+  invented and would miss a paraphrase. It is a backstop; the factual content is assembled
+  in code.
+- **Nothing is filed.** The tool says what to bring and where to go.
+
+## What I would build next
+
+1. **Voice, both directions.** The person this is for may not read. The worker beside them
+   does. ASR plus TTS closes that gap and changes nothing above it.
+2. **A correction loop for caseworkers.** When a decision is wrong, the operator should be
+   able to record that *against the rule that produced it* — possible only because a rule
+   produced it. That is the dataset that improves a programme, and a model deciding
+   end-to-end cannot generate it.
+3. **Per-district rule files.** Eight schemes were enough to build and measure against. A district's
+   real list is a data-collection problem, not a modelling one.
