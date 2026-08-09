@@ -1,0 +1,15 @@
+{
+  "id": "alexyy/yojana-sarathi-offline-welfare-navigator",
+  "title": "Yojana Sarathi: offline welfare navigator",
+  "code_file": "yojana-sarathi.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": false,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [
+    "build-with-gemma-tfug-prayagraj-ai-prayagraj"
+  ],
+  "kernel_sources": []
+}
