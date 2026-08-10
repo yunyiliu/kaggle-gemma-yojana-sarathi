@@ -16,3 +16,6 @@ __pycache__/
 *.zip
 .ipynb_checkpoints/
 .DS_Store
+
+# video build intermediates
+build_video/
